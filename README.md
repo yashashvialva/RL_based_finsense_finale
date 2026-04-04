@@ -1,40 +1,65 @@
+---
+title: FinSense RL
+emoji: 💰
+colorFrom: green
+colorTo: blue
+sdk: docker
+pinned: false
+---
+
 # FinSense RL Environment
 
-A goal-driven financial decision-making RL environment simulating Indian household budgeting. 
-This is an OpenEnv-compliant environment developed for the Meta x Hugging Face x Scaler Hackathon.
+A goal-driven financial decision-making RL environment simulating Indian household budgeting.
 
-## Description
-FinSense puts the AI agent in charge of managing an abstract Indian household budget. The agent receives a stream of daily expenses and must decide to either:
-- **allow**: Full expense is deducted from the balance.
-- **reduce**: A partial expense amount is paid.
-- **avoid**: No deduction, but increases stress (especially for `essential` items).
+## Overview
 
-The objective is to maximize long-term savings to meet specific financial goals while balancing stress, risk of ruin, tight deadlines, and stochastic financial shocks (salary delays, emergencies, etc.).
+FinSense simulates real-world Indian household financial decision-making. An AI agent manages daily expenses across a fixed-horizon episode, deciding to **allow**, **reduce**, or **avoid** each incoming expense — balancing a savings goal, stress accumulation, and stochastic income shocks.
 
-## Core Features
-1. **Realistic Financial Features**: Takes into account necessity tags, moving averages of spendings, user behavioural patterns, and fixed expenses.
-2. **Dense Rewards**: Integrates goal progression, overspending penalties, stress penalties, and inconsistency penalties to shape behavior continuously.
-3. **Anti-Exploit Mechanics**: Avoiding essential and semi-essential expenses builds up stress. High stress results in heavy episode-end penalties to prevent the agent from just avoiding all expenses.
-4. **Stochastic Elements**: Seed-controlled randomness injects salary delays, emergencies, and utility discounts.
-5. **OpenEnv Ready**: Exposes 3 task difficulties (`easy`, `medium`, `hard`) alongside a FastAPI environment server.
+## API Endpoints
 
-## Installation
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/reset` | POST | Reset environment, returns initial observation |
+| `/step` | POST | Take an action, returns obs, reward, done, info |
+| `/state` | GET | Get current state without advancing |
+| `/tasks` | GET | List available tasks |
+| `/health` | GET | Health check |
 
-You can run the environment natively using Docker.
+## Tasks
 
-```bash
-docker build -t finsense-env .
-docker run -p 7860:7860 finsense-env
+| Task | Goal | Days | Difficulty |
+|------|------|------|------------|
+| easy | Save ₹5,000 | 15 | Easy |
+| medium | Save ₹15,000 | 30 | Medium |
+| hard | Save ₹30,000 | 45 | Hard |
+
+## Action Space
+
+```json
+{
+  "decision": "allow | reduce | avoid",
+  "approved_amount": 0.0,
+  "reasoning": "optional string"
+}
 ```
 
-## Running Inference
-
-The baseline OpenEnv inference script utilizes the OpenAI standard client. Make sure to export your credentials before running the agent.
+## Quick Start
 
 ```bash
-export API_BASE_URL="https://api.openai.com/v1"
-export MODEL_NAME="gpt-4"
-export HF_TOKEN="your-hf-token-here"
+# Reset environment
+curl -X POST https://yashashvialva-finsense-rl.hf.space/reset \
+  -H "Content-Type: application/json" \
+  -d '{"task_id": "easy", "seed": 42}'
 
-python inference.py
+# Take a step
+curl -X POST https://yashashvialva-finsense-rl.hf.space/step \
+  -H "Content-Type: application/json" \
+  -d '{"decision": "avoid", "approved_amount": 0.0, "reasoning": "discretionary"}'
+```
+
+## Setup
+
+```bash
+pip install -r requirements.txt
+uvicorn finsense.server:app --host 0.0.0.0 --port 7860
 ```
