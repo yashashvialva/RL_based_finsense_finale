@@ -1,0 +1,46 @@
+name: finsense-rl
+description: "A goal-driven financial decision-making RL environment simulating Indian household budgeting."
+version: "1.0.0"
+tasks:
+  - id: easy
+    name: "Monthly Saver"
+    difficulty: easy
+  - id: medium
+    name: "Quarter Goal"
+    difficulty: medium
+  - id: hard
+    name: "Multi-Goal Chaos"
+    difficulty: hard
+observation_space:
+  type: dict
+  fields:
+    - name: balance
+      type: float
+    - name: goal_remaining
+      type: float
+    - name: days_left
+      type: int
+    - name: stress_level
+      type: float
+    - name: risk_level
+      type: string
+    - name: required_savings_per_day
+      type: float
+    - name: daily_allowance
+      type: float
+    - name: current_expense
+      type: dict
+action_space:
+  type: dict
+  fields:
+    - name: decision
+      type: string
+      values: [allow, reduce, avoid]
+    - name: approved_amount
+      type: float
+    - name: reasoning
+      type: string
+reward_range: [-100, 100]
+metadata:
+  framework: fastapi
+  port: 7860
