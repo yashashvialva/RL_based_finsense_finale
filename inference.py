@@ -47,11 +47,11 @@ Reply ONLY with JSON: {{"decision": "allow/reduce/avoid", "approved_amount": 0.0
 def run_inference():
     print("[START]")
 
-    api_key = os.getenv("HF_TOKEN", "dummy_token")
-    base_url = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-    model_name = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct:cerebras")
+    HF_TOKEN = os.getenv("HF_TOKEN")
+    API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+    MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct:cerebras")
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    client = OpenAI(api_key=HF_TOKEN, base_url=API_BASE_URL)
 
     env = FinSenseEnv()
     obs = env.reset(task_id="easy")
@@ -66,7 +66,7 @@ def run_inference():
 
         try:
             response = client.chat.completions.create(
-                model=model_name,
+                model=MODEL_NAME,
                 messages=[
                     {"role": "system", "content": "You are a financial agent. Reply only with valid JSON."},
                     {"role": "user", "content": build_prompt(obs)}
