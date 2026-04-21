@@ -7,6 +7,7 @@ class Expense(BaseModel):
     category: str = Field(..., description="Category (food, transport, rent, etc.)")
     amount: float = Field(..., description="Amount in INR")
     necessity_tag: Literal["essential", "semi-essential", "discretionary"] = Field(..., description="Necessity level")
+    context: Literal["normal", "weekend", "emergency"] = Field("normal", description="Context of the expense")
  
  
 class ObservationModel(BaseModel):
@@ -36,6 +37,9 @@ class ObservationModel(BaseModel):
     # Task context
     task_id: str = Field(..., description="Current task identifier")
     salary: float = Field(..., description="Initial salary / starting balance")
+
+    # Multi-agent world events
+    active_events: List[str] = Field(default_factory=list, description="Currently active macro events")
  
  
 class ActionModel(BaseModel):

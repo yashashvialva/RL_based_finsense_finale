@@ -29,6 +29,23 @@ CATEGORIES = {
     }
 }
 
+CONTEXT_WEIGHTS = {
+    "medical":       {"emergency": 0.5, "normal": 0.5, "weekend": 0.0},
+    "repairs":       {"emergency": 0.4, "normal": 0.6, "weekend": 0.0},
+    "food":          {"normal": 0.6, "weekend": 0.3, "emergency": 0.1},
+    "entertainment": {"weekend": 0.6, "normal": 0.4, "emergency": 0.0},
+    "transport":     {"normal": 0.7, "weekend": 0.2, "emergency": 0.1},
+    "utilities":     {"normal": 0.9, "emergency": 0.1, "weekend": 0.0},
+    "shopping":      {"weekend": 0.5, "normal": 0.5, "emergency": 0.0},
+}
+
+def get_context(category):
+    weights = CONTEXT_WEIGHTS.get(category, {"normal": 1.0})
+    return random.choices(
+        list(weights.keys()),
+        weights=list(weights.values())
+    )[0]
+
 class ExpenseGenerator:
     def __init__(self, seed: int):
         self.rng = random.Random(seed)
@@ -53,9 +70,20 @@ class ExpenseGenerator:
                 name=name,
                 category=category,
                 amount=amount,
-                necessity_tag=necessity
+                necessity_tag=necessity,
+                context=get_context(category)
             ))
         return expenses
+        
+    def _generate_context(self) -> str:
+        """Generate context for expense: normal, weekend, emergency"""
+        roll = self.rng.random()
+        if roll < 0.1:  # 10% emergency
+            return "emergency"
+        elif roll < 0.3:  # 20% weekend
+            return "weekend"
+        else:  # 70% normal
+            return "normal"
         
     def check_shock(self, allow_shocks: bool) -> str:
         if not allow_shocks:

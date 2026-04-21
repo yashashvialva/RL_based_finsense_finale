@@ -51,7 +51,7 @@ action_space:
       type: float
     - name: reasoning
       type: string
-reward_range: [-100, 100]
+reward_range: [0.01, 0.99]
 metadata:
   framework: fastapi
   port: 7860

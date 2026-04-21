@@ -11,8 +11,8 @@ MANDATORY
 
 - Defaults are set only for API_BASE_URL and MODEL_NAME 
     (and should reflect your active inference setup):
-    API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-    MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct:cerebras")
+    API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:11434/v1/")
+    MODEL_NAME = os.getenv("MODEL_NAME", "mistral:latest")
     
 - The inference script must be named `inference.py` and placed in the root directory of the project
 - Participants must use OpenAI Client for all LLM calls using above variables
@@ -45,47 +45,91 @@ STDOUT FORMAT
 import os
 import json
 import sys
-from openai import OpenAI
 from finsense.env import FinSenseEnv
 from finsense.models import ActionModel, StateModel, Expense
 from finsense.graders import grade_episode
 from finsense.tasks import TASKS
+from finsense.memory import MemorySystem
 
-def get_fallback_action(obs: dict) -> ActionModel:
-    """
-    Smart rule-based fallback when API fails or LLM returns invalid output.
-    """
-    exp = obs.get("current_expense") or {}
-    necessity = exp.get("necessity_tag", "discretionary")
-    amount = float(exp.get("amount", 0))
+# Import the local rule-based agent as fallback
+from inference_local import rule_based_agent
 
-    if necessity == "essential":
-        return ActionModel(decision="allow", approved_amount=amount, reasoning="Fallback: essential allowed")
-    elif necessity == "semi-essential":
-        return ActionModel(decision="reduce", approved_amount=round(amount * 0.5, 2), reasoning="Fallback: semi-essential reduced")
-    else:
-        return ActionModel(decision="avoid", approved_amount=0.0, reasoning="Fallback: discretionary avoided")
 
-def build_prompt(obs: dict) -> str:
+def get_fallback_action(obs: dict, memory: MemorySystem = None, use_memory: bool = False) -> ActionModel:
     """
-    Short, token-efficient prompt.
+    Smart rule-based fallback with memory support.
+    Used when API fails, LLM returns invalid output, or running without LLM.
     """
+    return rule_based_agent(obs, memory=memory, use_memory=use_memory)
+
+
+def extract_json(raw: str) -> str:
+    """Sanitize raw LLM output to extract valid JSON."""
+    raw = raw.strip()
+
+    # Remove markdown code blocks
+    if raw.startswith("```"):
+        parts = raw.split("```")
+        raw = parts[1] if len(parts) > 1 else raw
+        if raw.startswith("json"):
+            raw = raw[4:].strip()
+
+    # Extract first JSON object
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start != -1 and end != -1:
+        raw = raw[start:end+1]
+
+    return raw
+
+
+def build_prompt(obs: dict, memory_bias: str = None) -> str:
+    """Strict JSON-enforcing prompt for financial decisions."""
     exp = obs.get("current_expense", {}) or {}
     necessity = exp.get("necessity_tag", "discretionary")
     amount = exp.get("amount", 0)
     name = exp.get("name", "Unknown")
+    balance = obs.get('balance', 0)
+    goal_remaining = obs.get('goal_remaining', 0)
+    days_left = obs.get('days_left', 0)
 
-    return f"""Financial agent. Decide on this expense.
+    prompt = f"""You are a financial decision agent.
 
-Balance: {obs.get('balance', 0):.0f} | Goal Left: {obs.get('goal_remaining', 0):.0f} | Days: {obs.get('days_left', 0)}
-Expense: {name} | Amount: {amount:.0f} | Type: {necessity}
+Return ONLY valid JSON. No explanation. No markdown. No text before or after.
+
+Format:
+{{
+  "decision": "allow" | "reduce" | "avoid",
+  "approved_amount": number,
+  "reasoning": "short string"
+}}
 
 Rules:
-- essential -> allow full amount
-- semi-essential -> reduce by 50%
-- discretionary -> avoid
+- essential → allow full
+- semi-essential → reduce ~50%
+- discretionary → avoid
 
-Reply ONLY with JSON: {{"decision": "allow/reduce/avoid", "approved_amount": 0.0, "reasoning": "short"}}"""
+Strict requirements:
+- Use double quotes only
+- No trailing commas
+- No comments
+- No extra text
+
+Now decide:
+Balance: {balance:.0f}
+Goal Left: {goal_remaining:.0f}
+Days Left: {days_left}
+
+Expense:
+Name: {name}
+Amount: {amount:.0f}
+Type: {necessity}"""
+
+    if memory_bias:
+        prompt += f"\nMemory suggests: {memory_bias} for similar situations (strong recommendation from past experience)."
+
+    return prompt
+
 
 def calculate_final_score(env, task_id):
     s = env.state
@@ -115,26 +159,44 @@ def calculate_final_score(env, task_id):
         state_model = StateModel(**state_data)
         raw = grade_episode(state_model)
         # CRITICAL: always clamp, even if grader returns something unexpected
-        return max(0.0, min(1.0, raw))
+        return max(0.01, min(0.99, raw))
     except Exception:
         goal_total = s["goal_total"]
         goal_remaining = s["goal_remaining"]
         goal_progress = max(0.0, goal_total - goal_remaining)
         raw = goal_progress / max(1.0, goal_total)
-        return max(0.0, min(1.0, raw))
+        return max(0.01, min(0.99, raw))
+
+
 def run_inference(task_id="easy"):
     # Load environment variables
-    HF_TOKEN = os.getenv("HF_TOKEN")
-    API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-    MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct:cerebras")
+    HF_TOKEN = os.getenv("HF_TOKEN", "ollama")
+    API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:11434/v1/")
+    MODEL_NAME = os.getenv("MODEL_NAME", "")
+    use_memory = os.getenv("USE_MEMORY", "1") == "1"
 
-    client = OpenAI(api_key=HF_TOKEN, base_url=API_BASE_URL)
+    # Check if LLM is available
+    llm_available = False
+    client = None
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=HF_TOKEN, base_url=API_BASE_URL)
+        if MODEL_NAME:
+            llm_available = True
+    except Exception:
+        pass
 
     env = FinSenseEnv()
+    memory = env.memory
+
     obs = env.reset(task_id=task_id)
 
-    # [START] header
-    print(f"[START] task={task_id} env=finsense-rl model={MODEL_NAME}")
+    model_label = MODEL_NAME if llm_available else "rule-based-fallback"
+    print(f"[START] task={task_id} env=finsense-rl model={model_label}")
+
+    if not llm_available:
+        print(f"  [INFO] No LLM available - using rule-based agent with memory={'ON' if use_memory else 'OFF'}")
 
     step_num = 0
     all_rewards = []
@@ -147,46 +209,77 @@ def run_inference(task_id="easy"):
             action_str = "null"
             
             try:
-                response = client.chat.completions.create(
-                    model=MODEL_NAME,
-                    messages=[
-                        {"role": "system", "content": "You are a financial agent. Reply only with valid JSON."},
-                        {"role": "user", "content": build_prompt(obs)}
-                    ],
-                    max_tokens=80,
-                    temperature=0.1
-                )
-                raw = response.choices[0].message.content.strip()
+                # Get memory bias
+                memory_bias = None
+                if use_memory:
+                    exp = obs.get("current_expense") or {}
+                    expense_type = exp.get("category", "unknown")
+                    context = exp.get("context", "normal")
+                    necessity = exp.get("necessity_tag", "unknown")
+                    active_events = obs.get("active_events", [])
+                    event_type = active_events[0] if active_events else "none"
+                    memory_bias = memory.get_memory_bias(
+                        expense_type, context, event_type, necessity=necessity
+                    )
 
-                # Strip markdown if present
-                if raw.startswith("```"):
-                    raw = raw.split("```")[1]
-                    if raw.startswith("json"):
-                        raw = raw[4:]
-                    raw = raw.split("```")[0].strip()
+                if llm_available and client and MODEL_NAME:
+                    # Try LLM-based decision
+                    response = client.chat.completions.create(
+                        model=MODEL_NAME,
+                        messages=[
+                            {"role": "system", "content": "You are a financial agent. Reply only with valid JSON."},
+                            {"role": "user", "content": build_prompt(obs, memory_bias)}
+                        ],
+                        max_tokens=80,
+                        temperature=0.1
+                    )
+                    raw = response.choices[0].message.content.strip()
+                    print(f"[RAW LLM] {raw}")
 
-                action_dict = json.loads(raw)
+                    # Safe JSON extraction
+                    clean = extract_json(raw)
+                    print(f"[CLEANED] {clean}")
 
-                # Sanitize
-                if action_dict.get("decision") not in ("allow", "reduce", "avoid"):
-                    action_dict["decision"] = "avoid"
-                if not isinstance(action_dict.get("approved_amount"), (int, float)):
-                    action_dict["approved_amount"] = 0.0
-                
-                # Enforce essential rule
-                exp = obs.get("current_expense") or {}
-                if exp.get("necessity_tag") == "essential" and action_dict.get("decision") in ("reduce", "avoid"):
-                    action_dict["decision"] = "allow"
-                    action_dict["approved_amount"] = float(exp.get("amount", 0))
+                    # Fault-tolerant parsing
+                    try:
+                        action_dict = json.loads(clean)
+                    except Exception:
+                        # Hard fallback repair attempt
+                        clean = clean.replace("'", '"')  # fix single quotes
+                        clean = clean.replace("\n", " ")
+                        try:
+                            action_dict = json.loads(clean)
+                        except Exception:
+                            raise ValueError("JSON_PARSE_FAILED")
 
-                action = ActionModel(**action_dict)
-                action_str = f"{action.decision}({action.approved_amount:.0f})"
-                last_error = "null"
+                    # Output validation guard
+                    if action_dict.get("decision") not in ("allow", "reduce", "avoid"):
+                        print(f"[VALIDATION] Invalid decision '{action_dict.get('decision')}' → forcing 'avoid'")
+                        action_dict["decision"] = "avoid"
+                    if not isinstance(action_dict.get("approved_amount"), (int, float)):
+                        print(f"[VALIDATION] Invalid approved_amount → forcing 0.0")
+                        action_dict["approved_amount"] = 0.0
+                    
+                    # Enforce essential rule
+                    exp = obs.get("current_expense") or {}
+                    if exp.get("necessity_tag") == "essential" and action_dict.get("decision") in ("reduce", "avoid"):
+                        action_dict["decision"] = "allow"
+                        action_dict["approved_amount"] = float(exp.get("amount", 0))
+
+                    action = ActionModel(**action_dict)
+                    action_str = f"{action.decision}({action.approved_amount:.0f})"
+                    last_error = "null"
+                else:
+                    # Use rule-based agent with memory
+                    action = get_fallback_action(obs, memory=memory, use_memory=use_memory)
+                    action_str = f"{action.decision}({action.approved_amount:.0f})"
+                    last_error = "null"
 
             except Exception as e:
-                action = get_fallback_action(obs)
+                print(f"[PARSE ERROR] {e}")
+                action = get_fallback_action(obs, memory=memory, use_memory=use_memory)
                 action_str = f"fallback:{action.decision}({action.approved_amount:.0f})"
-                last_error = str(e).replace('\n', ' ')
+                last_error = str(e).replace('\n', ' ')[:200]
 
             obs, reward, done, info = env.step(action)
             all_rewards.append(reward)
@@ -196,7 +289,7 @@ def run_inference(task_id="easy"):
             print(f"[STEP] step={step_num} action={action_str} reward={reward:.2f} done={done_str} error={last_error}")
 
     except Exception as e:
-        last_error = str(e).replace('\n', ' ')
+        last_error = str(e).replace('\n', ' ')[:200]
     finally:
         success_bool = obs.get("goal_remaining", 0) <= 0
         success_str = str(success_bool).lower()
