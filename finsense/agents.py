@@ -74,6 +74,32 @@ class EventAgent:
                 }
                 new_events.append(event)
 
+        # Tax season: expected but large expense impact
+        if (0.3 <= pct <= 0.45):
+            if self.rng.random() < 0.08:
+                intensity = self.rng.uniform(1.2, 1.4)
+                event = {
+                    "type": "tax_season",
+                    "intensity": intensity,
+                    "categories": ["utility", "rent"],
+                    "duration": max(2, int(self.total_days * 0.05)),
+                    "day_triggered": day,
+                }
+                new_events.append(event)
+                
+        # Unexpected windfall (positive event: intensity < 1.0 reduces prices)
+        if (0.1 <= pct <= 0.9):
+            if self.rng.random() < 0.05:
+                intensity = self.rng.uniform(0.7, 0.9)
+                event = {
+                    "type": "unexpected_windfall",
+                    "intensity": intensity,
+                    "categories": ["entertainment", "food", "household_repairs"],
+                    "duration": max(2, int(self.total_days * 0.08)),
+                    "day_triggered": day,
+                }
+                new_events.append(event)
+
         # Step 1: Decrement existing events FIRST (before adding new ones)
         for event in self.active_events:
             event["remaining_days"] -= 1
@@ -103,10 +129,26 @@ class VendorAgent:
 
     def __init__(self):
         self.event_multipliers: Dict[str, float] = {}
+        self.base_multipliers: Dict[str, float] = {}
+        self.seen_events: set = set()
 
     def update_prices(self, expenses: List[Expense], active_events: List[Dict[str, Any]]) -> List[Expense]:
         """Adjust expense amounts based on active events."""
-        # Reset multipliers
+        # Check for new repeated shocks
+        for event in active_events:
+            event_id = f"{event['type']}_{event['day_triggered']}"
+            if event_id not in self.seen_events:
+                self.seen_events.add(event_id)
+                # Count how many times we've seen this event type
+                type_count = sum(1 for e in self.seen_events if e.startswith(event['type']))
+                if type_count > 1:
+                    # Permanent 5% increase for affected categories
+                    for category in event["categories"]:
+                        if category not in self.base_multipliers:
+                            self.base_multipliers[category] = 1.0
+                        self.base_multipliers[category] *= 1.05
+
+        # Reset temporary multipliers
         self.event_multipliers = {}
 
         # Calculate multipliers from active events
@@ -119,8 +161,10 @@ class VendorAgent:
         # Apply multipliers to expenses
         adjusted_expenses = []
         for exp in expenses:
-            multiplier = self.event_multipliers.get(exp.category, 1.0)
-            adjusted_amount = round(exp.amount * multiplier, 2)
+            temp_mult = self.event_multipliers.get(exp.category, 1.0)
+            base_mult = self.base_multipliers.get(exp.category, 1.0)
+            final_mult = temp_mult * base_mult
+            adjusted_amount = round(exp.amount * final_mult, 2)
             adjusted_exp = exp.model_copy()
             adjusted_exp.amount = adjusted_amount
             adjusted_expenses.append(adjusted_exp)
@@ -128,5 +172,11 @@ class VendorAgent:
         return adjusted_expenses
 
     def get_event_multipliers(self) -> Dict[str, float]:
-        """Return current price multipliers by category."""
-        return self.event_multipliers.copy()
+        """Return current effective price multipliers by category."""
+        effective = {}
+        all_categories = set(self.event_multipliers.keys()).union(set(self.base_multipliers.keys()))
+        for cat in all_categories:
+            temp_mult = self.event_multipliers.get(cat, 1.0)
+            base_mult = self.base_multipliers.get(cat, 1.0)
+            effective[cat] = round(temp_mult * base_mult, 3)
+        return effective

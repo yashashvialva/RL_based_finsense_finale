@@ -7,7 +7,7 @@ class Expense(BaseModel):
     category: str = Field(..., description="Category (food, transport, rent, etc.)")
     amount: float = Field(..., description="Amount in INR")
     necessity_tag: Literal["essential", "semi-essential", "discretionary"] = Field(..., description="Necessity level")
-    context: Literal["normal", "weekend", "emergency"] = Field("normal", description="Context of the expense")
+    context: Literal["normal", "weekend", "emergency", "holiday_season"] = Field("normal", description="Context of the expense")
  
  
 class ObservationModel(BaseModel):

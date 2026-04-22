@@ -89,11 +89,14 @@ def build_prompt(obs: dict, memory_bias: str = None) -> str:
     necessity = exp.get("necessity_tag", "discretionary")
     amount = exp.get("amount", 0)
     name = exp.get("name", "Unknown")
+    context = exp.get("context", "normal")
     balance = obs.get('balance', 0)
     goal_remaining = obs.get('goal_remaining', 0)
     days_left = obs.get('days_left', 0)
+    active_events = obs.get("active_events", [])
+    events_str = ", ".join(active_events) if active_events else "None"
 
-    prompt = f"""You are a financial decision agent.
+    prompt = f"""You are a financial decision agent. Should I spend on this right now? Consider the balance, days left, event context, and memory.
 
 Return ONLY valid JSON. No explanation. No markdown. No text before or after.
 
@@ -119,11 +122,13 @@ Now decide:
 Balance: {balance:.0f}
 Goal Left: {goal_remaining:.0f}
 Days Left: {days_left}
+Active Events: {events_str}
 
 Expense:
 Name: {name}
 Amount: {amount:.0f}
-Type: {necessity}"""
+Type: {necessity}
+Context: {context}"""
 
     if memory_bias:
         prompt += f"\nMemory suggests: {memory_bias} for similar situations (strong recommendation from past experience)."
@@ -169,10 +174,13 @@ def calculate_final_score(env, task_id):
 
 
 def run_inference(task_id="easy"):
-    # Load environment variables
+    # # Load environment variables
+# No hardcoded keys in the default value!
+ 
     HF_TOKEN = os.getenv("HF_TOKEN", "ollama")
     API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:11434/v1/")
-    MODEL_NAME = os.getenv("MODEL_NAME", "")
+    MODEL_NAME = os.getenv("MODEL_NAME", "mistral")
+
     use_memory = os.getenv("USE_MEMORY", "1") == "1"
 
     # Check if LLM is available

@@ -26,17 +26,21 @@ CATEGORIES = {
     },
     "entertainment": {
         "discretionary": [("Movie Tickets", 300, 1000), ("Concert", 1500, 5000), ("Streaming Sub", 200, 800)]
+    },
+    "household_repairs": {
+        "essential": [("Plumber", 500, 2000), ("Electrician", 500, 1500)],
+        "semi-essential": [("Appliance Repair", 1000, 4000)]
     }
 }
 
 CONTEXT_WEIGHTS = {
-    "medical":       {"emergency": 0.5, "normal": 0.5, "weekend": 0.0},
-    "repairs":       {"emergency": 0.4, "normal": 0.6, "weekend": 0.0},
-    "food":          {"normal": 0.6, "weekend": 0.3, "emergency": 0.1},
-    "entertainment": {"weekend": 0.6, "normal": 0.4, "emergency": 0.0},
-    "transport":     {"normal": 0.7, "weekend": 0.2, "emergency": 0.1},
-    "utilities":     {"normal": 0.9, "emergency": 0.1, "weekend": 0.0},
-    "shopping":      {"weekend": 0.5, "normal": 0.5, "emergency": 0.0},
+    "medical":           {"emergency": 0.5, "normal": 0.5, "weekend": 0.0, "holiday_season": 0.0},
+    "household_repairs": {"emergency": 0.4, "normal": 0.6, "weekend": 0.0, "holiday_season": 0.0},
+    "food":              {"normal": 0.5, "weekend": 0.3, "emergency": 0.1, "holiday_season": 0.1},
+    "entertainment":     {"weekend": 0.5, "normal": 0.3, "emergency": 0.0, "holiday_season": 0.2},
+    "transport":         {"normal": 0.6, "weekend": 0.2, "emergency": 0.1, "holiday_season": 0.1},
+    "utility":           {"normal": 0.9, "emergency": 0.1, "weekend": 0.0, "holiday_season": 0.0},
+    "rent":              {"normal": 1.0},
 }
 
 def get_context(category):
@@ -56,7 +60,7 @@ class ExpenseGenerator:
             # Weighted random choice of category
             category = self.rng.choices(
                 list(CATEGORIES.keys()), 
-                weights=[40, 20, 5, 10, 5, 20] 
+                weights=[35, 15, 5, 10, 5, 20, 10] 
             )[0]
             
             necessity = self.rng.choice(list(CATEGORIES[category].keys()))

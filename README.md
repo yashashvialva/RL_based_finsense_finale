@@ -77,8 +77,8 @@ Expenses are generated based on realistic Indian household economics and tagged 
 
 | Necessity | Examples | Amount Range |
 |-----------|----------|-------------|
-| `essential` | House Rent, Groceries, Pharmacy, Electricity Bill | Rs.200 - Rs.25,000 |
-| `semi-essential` | Swiggy/Zomato, Uber/Ola, Health Checkup | Rs.50 - Rs.3,000 |
+| `essential` | House Rent, Groceries, Pharmacy, Electricity Bill, Plumber | Rs.200 - Rs.25,000 |
+| `semi-essential` | Swiggy/Zomato, Uber/Ola, Health Checkup, Appliance Repair | Rs.50 - Rs.4,000 |
 | `discretionary` | Fine Dining, Flight Booking, Concert, Bar/Pub | Rs.200 - Rs.12,000 |
 
 **Example expense generation:**
@@ -189,6 +189,7 @@ Every expense includes a `context` field reflecting the situation in which it ar
 | `normal` | 70% | Regular day, no special circumstances |
 | `weekend` | 20% | Weekend spending pressure (lifestyle inflation) |
 | `emergency` | 10% | Urgent/critical situation requiring immediate attention |
+| `holiday_season` | dynamic | Pressure during festive days to splurge |
 
 **Reward integration (how context affects the agent's score):**
 
@@ -226,6 +227,8 @@ The `EventAgent` triggers world-level events that affect the entire financial la
 | `inflation` | 30-70% | 12% | 1.1x - 1.5x | ~12% of episode | food, utility |
 | `medical_surge` | Any time | 8% | 1.3x - 2.0x | ~8% of episode | medical |
 | `festival_season` | 50-80% | 10% | 1.15x - 1.4x | ~10% of episode | food, entertainment |
+| `tax_season` | 30-45% | 8% | 1.2x - 1.4x | ~5% of episode | utility, rent |
+| `unexpected_windfall` | 10-90% | 5% | 0.7x - 0.9x | ~8% of episode | entertainment, food, household_repairs |
 
 **Example: Fuel crisis during Hard task (45 days)**
 ```
@@ -247,7 +250,7 @@ Day 22: [EVENT] inflation (1.4x food) + festival_season (1.25x food)
 
 ### VendorAgent -- Dynamic Price Adjustments
 
-The `VendorAgent` translates active events into price multipliers applied to each expense category. It recalculates multipliers every day based on currently active events.
+The `VendorAgent` translates active events into price multipliers applied to each expense category. It recalculates multipliers every day based on currently active events. Additionally, it tracks repeated shocks. If an event type triggers multiple times across an episode, the VendorAgent permanently increases the base price by 5% to reflect market adaptation.
 
 ```
 [PRICES] Adjustments: {'food': 1.75, 'utility': 1.40, 'transport': 1.52}
